@@ -33,6 +33,7 @@ import se.lth.cs.connect.RequestException;
 import se.lth.cs.connect.TrustLevel;
 import se.lth.cs.connect.modules.AccountSystem;
 import se.lth.cs.connect.modules.Database;
+import utils.Filter;
 
 /**
  Handles /entry routes for now.
@@ -159,8 +160,8 @@ public class Entry extends BackendRouter {
             if (isResearch())
                 return CREATE.node(node).label("entry").label(entryType)
                     .property("contact").value(contact)
-                    .property("reference").value(reference)
-                    .property("doi").value(doi)
+                    .property("reference").value(Filter.xss(reference))
+                    .property("doi").value(Filter.xss(doi))
                     .property("hash").value(hval)
                     .property("date").value(date);
             else
@@ -168,7 +169,7 @@ public class Entry extends BackendRouter {
                     .property("contact").value(contact)
                     .property("hash").value(hval)
                     .property("date").value(date)
-                    .property("description").value(description);
+                    .property("description").value(Filter.xss(description));
         }
     }
 
@@ -317,10 +318,10 @@ public class Entry extends BackendRouter {
             update.add(DO.SET(entry.property("contact")).to(e.contact));
             update.add(DO.SET(entry.property("hash")).to(e.hash()));
             if (e.isResearch()) {
-                update.add(DO.SET(entry.property("reference")).to(e.reference));
-                update.add(DO.SET(entry.property("doi")).to(e.doi));
+                update.add(DO.SET(entry.property("reference")).to(Filter.xss(e.reference)));
+                update.add(DO.SET(entry.property("doi")).to(Filter.xss(e.doi)));
             } else
-                update.add(DO.SET(entry.property("description")).to(e.description));
+                update.add(DO.SET(entry.property("description")).to(Filter.xss(e.description)));
 
             IClause[] query = new IClause[taxonomy.size() + update.size() + 2];
             query[0] = MATCH.node(entry).label("entry");
