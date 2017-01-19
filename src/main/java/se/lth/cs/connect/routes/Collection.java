@@ -234,7 +234,10 @@ public class Collection extends BackendRouter {
         POST("/{id}/invite", (rc) -> {
             int id = rc.getParameter("id").toInt();
             List<String> emails = rc.getParameter("email").toList(String.class);
-
+            String inviter = rc.getParameter("inviterEmail").toString();
+            
+            System.out.println(inviter);
+            
             for (String email : emails) {
                 JcNode user = new JcNode("user");
                 JcNode coll = new JcNode("coll");
@@ -246,11 +249,22 @@ public class Collection extends BackendRouter {
                     WHERE.valueOf(coll.id()).EQUALS(id),
                     MERGE.node(user).relation().out().type("INVITE").node(coll)
                 });
-
+                
+                System.out.println("everything is fine");
+                JcNode inviterNode = new JcNode("user");
+                Database.query(rc.getLocal("db"), new IClause[]{
+                        MATCH.node(user).label("user").property("email").value(email),
+                        //MATCH.node(coll).label("collection"),
+                        //WHERE.valueOf(coll.id()).EQUALS(id),
+                        MATCH.node(inviterNode).label("user").property("email").value(inviter),
+                        CREATE.node(user).relation().out().type("INVITER").node(inviterNode)
+                    });
+                System.out.println("super fine");
                 app.getMailClient().
     				sendEmail(email, "SERP Connect - Collection Invite",
     						  collectionInviteTemplate.
     						  	  replace("{frontend}", frontend));
+                System.out.println("no problemos");
             }
 
             rc.getResponse().ok();
