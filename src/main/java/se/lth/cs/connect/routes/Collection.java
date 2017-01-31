@@ -32,360 +32,380 @@ import se.lth.cs.connect.modules.Database;
  * Handles account related actions.
  */
 public class Collection extends BackendRouter {
-    public String getPrefix() { return "/v1/collection"; }
+	public String getPrefix() {
+		return "/v1/collection";
+	}
 
-    private String collectionInviteTemplate;
-    private String frontend;
+	private String collectionInviteTemplate;
+	private String collectionInviteActionTemplate;
+	private String frontend;
 
-    public Collection(Connect app) {
-        super(app);
+	public Collection(Connect app) {
+		super(app);
 
-        Messages msg = app.getMessages();
-        collectionInviteTemplate = msg.get("pippo.collectioninvite", "en");
+		Messages msg = app.getMessages();
+		collectionInviteTemplate = msg.get("pippo.collectioninvite", "en");
+		collectionInviteActionTemplate = msg.get("pippo.collectioninviteaction", "en");
 
-        frontend = app.getPippoSettings().getString("frontend", "http://localhost:8181");
-    }
+		frontend = app.getPippoSettings().getString("frontend", "http://localhost:8181");
+	}
 
-    protected void setup(PippoSettings conf) {
+	protected void setup(PippoSettings conf) {
 
-        // POST api.serpconnect.cs.lth.se/v1/collection HTTP/1.1
-        // name=blabla
-        POST("/", (rc) -> {
-            String email = rc.getSession("email");
-            if (email == null)
-                throw new RequestException(401, "Must be logged in.");
+		// POST api.serpconnect.cs.lth.se/v1/collection HTTP/1.1
+		// name=blabla
+		POST("/", (rc) -> {
+			String email = rc.getSession("email");
+			if (email == null)
+				throw new RequestException(401, "Must be logged in.");
 
-            String name = rc.getParameter("name").toString();
-            if (name == null || name.isEmpty())
-                throw new RequestException("No name parameter");
+			String name = rc.getParameter("name").toString();
+			if (name == null || name.isEmpty())
+				throw new RequestException("No name parameter");
 
-            JcNode coll = new JcNode("c");
-            JcNode usr = new JcNode("u");
-            JcNumber id = new JcNumber("x");
+			JcNode coll = new JcNode("c");
+			JcNode usr = new JcNode("u");
+			JcNumber id = new JcNumber("x");
 
-            JcQueryResult res = Database.query(Database.access(), new IClause[]{
-                MATCH.node(usr).label("user").property("email").value(email),
-                CREATE.node(usr).relation().type("MEMBER_OF").out()
-                    .node(coll).label("collection")
-                    .property("name").value(name),
-                RETURN.value(coll.id()).AS(id)
-            });
+			JcQueryResult res = Database.query(Database.access(), new IClause[] {
+					MATCH.node(usr).label("user").property("email").value(email), CREATE.node(usr).relation()
+							.type("MEMBER_OF").out().node(coll).label("collection").property("name").value(name),
+					RETURN.value(coll.id()).AS(id) });
 
-            rc.json().send(
-            	"{ \"id\": " + res.resultOf(id).get(0) + " }");
-        });
-        
-        //id must be a string and the id must exist in the database.
-        ALL("/{id}/.*", (rc) -> {
-        	
-        	String ids = rc.getParameter("id").toString();
-        	if (!StringUtils.isNumeric(ids)){
-        		throw new RequestException("Invalid id");
-        	}
-        	int id = Integer.parseInt(ids);
-        	JcNode coll = new JcNode("coll");
-        	
-        	JcQueryResult res = Database.query(rc.getLocal("db"), new IClause[]{
-                    MATCH.node(coll).label("collection"),
-                    WHERE.valueOf(coll.id()).EQUALS(id),
-                    NATIVE.cypher("RETURN true AS ok")
-            });
-        	
-        	if (res.resultOf(new JcBoolean("ok")).size() == 0)
-        		throw new RequestException("id does not exist in database");
-                
-            rc.next();
-        });
+			rc.json().send("{ \"id\": " + res.resultOf(id).get(0) + " }");
+		});
 
-        //
-        GET("/{id}/graph", (rc) -> {
-            int id = rc.getParameter("id").toInt();
+		// id must be a string and the id must exist in the database.
+		ALL("/{id}/.*", (rc) -> {
 
-            JcNode coll = new JcNode("coll");
-            JcNode node = new JcNode("entry");
-            JcRelation rel = new JcRelation("rel");
+			String ids = rc.getParameter("id").toString();
+			if (!StringUtils.isNumeric(ids)) {
+				throw new RequestException("Invalid id");
+			}
+			int id = Integer.parseInt(ids);
+			JcNode coll = new JcNode("coll");
 
-            JcQueryResult res = Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node(coll).label("collection")
-                    .relation().type("CONTAINS")
-                    .node(node).label("entry"),
-                WHERE.valueOf(coll.id()).EQUALS(id),
-                OPTIONAL_MATCH.node(node).relation(rel).out().node().label("facet"),
-                RETURN.value(node),
-                RETURN.value(rel)
-            });
+			JcQueryResult res = Database.query(rc.getLocal("db"), new IClause[] { MATCH.node(coll).label("collection"),
+					WHERE.valueOf(coll.id()).EQUALS(id), NATIVE.cypher("RETURN true AS ok") });
 
-            rc.json().send(new Graph(res.resultOf(node), res.resultOf(rel)));
-        });
+			if (res.resultOf(new JcBoolean("ok")).size() == 0)
+				throw new RequestException("id does not exist in database");
 
-        // GET api.serpconnect.cs.lth.se/{id}/stats HTTP/1.1
-        // --> { members: int, entries: int }
-        GET("/{id}/stats", (rc) -> {
-            int id = rc.getParameter("id").toInt();
+			rc.next();
+		});
 
-            JcNode coll = new JcNode("coll");
-            JcRelation u = new JcRelation("u");
-            JcRelation e = new JcRelation("e");
+		//
+		GET("/{id}/graph", (rc) -> {
+			int id = rc.getParameter("id").toInt();
 
-            JcQueryResult res = Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node().label("user")
-                    .relation(u).type("MEMBER_OF")
-                    .node(coll).label("collection")
-                    .relation(e).type("CONTAINS")
-                    .node().label("entry"),
-                WHERE.valueOf(coll.id()).EQUALS(id),
-                NATIVE.cypher("RETURN COUNT(DISTINCT u) AS users, COUNT(DISTINCT e) AS entries")
-            });
+			JcNode coll = new JcNode("coll");
+			JcNode node = new JcNode("entry");
+			JcRelation rel = new JcRelation("rel");
 
-            final java.math.BigDecimal users = res.resultOf(new JcNumber("users")).get(0);
-            final java.math.BigDecimal entries = res.resultOf(new JcNumber("entries")).get(0);
+			JcQueryResult res = Database
+					.query(rc.getLocal("db"),
+							new IClause[] {
+									MATCH.node(coll).label("collection").relation().type("CONTAINS").node(node)
+											.label("entry"),
+									WHERE.valueOf(coll.id()).EQUALS(id),
+									OPTIONAL_MATCH.node(node).relation(rel).out().node().label("facet"),
+									RETURN.value(node), RETURN.value(rel) });
 
-            class RetVal {
-                public int members, entries;
-                public RetVal(int mem, int ent) {
-                    members = mem;
-                    entries = ent;
-                }
-            }
+			rc.json().send(new Graph(res.resultOf(node), res.resultOf(rel)));
+		});
 
-            rc.json().send(new RetVal(users.intValue(), entries.intValue()));
-        });
+		// GET api.serpconnect.cs.lth.se/{id}/stats HTTP/1.1
+		// --> { members: int, entries: int }
+		GET("/{id}/stats", (rc) -> {
+			int id = rc.getParameter("id").toInt();
 
-        // GET api.serpconnect.cs.lth.se/{id}/entries HTTP/1.1
-        // --> [entries in collection]
-        GET("/{id}/entries", (rc) -> {
-            int id = rc.getParameter("id").toInt();
+			JcNode coll = new JcNode("coll");
+			JcRelation u = new JcRelation("u");
+			JcRelation e = new JcRelation("e");
 
-            final JcNode entry = new JcNode("e");
-            final JcNode coll = new JcNode("c");
-            JcQueryResult res = Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node(coll).label("collection")
-                    .relation().type("CONTAINS")
-                    .node(entry).label("entry"),
-                WHERE.valueOf(coll.id()).EQUALS(id),
-                RETURN.value(entry)
-            });
+			JcQueryResult res = Database
+					.query(rc
+							.getLocal(
+									"db"),
+							new IClause[] {
+									MATCH.node().label("user").relation(u).type("MEMBER_OF").node(coll)
+											.label("collection").relation(e).type("CONTAINS").node().label("entry"),
+									WHERE.valueOf(coll.id()).EQUALS(id),
+									NATIVE.cypher("RETURN COUNT(DISTINCT u) AS users, COUNT(DISTINCT e) AS entries") });
 
-            final List<GrNode> entries = res.resultOf(entry);
+			final java.math.BigDecimal users = res.resultOf(new JcNumber("users")).get(0);
+			final java.math.BigDecimal entries = res.resultOf(new JcNumber("entries")).get(0);
+			class RetVal {
+				public int members, entries;
 
-            rc.status(200).json().send(Graph.Node.fromList(entries));
-        });
+				public RetVal(int mem, int ent) {
+					members = mem;
+					entries = ent;
+				}
+			}
 
-        // Must be logged in to accept
-        ALL("/{id}/.*", (rc) -> {
-            if (rc.getParameter("id").isEmpty())
-                throw new RequestException("Invalid collection id");
+			rc.json().send(new RetVal(users.intValue(), entries.intValue()));
+		});
 
-            if (rc.getSession("email") == null)
-                throw new RequestException(401, "Must be logged in.");
+		// GET api.serpconnect.cs.lth.se/{id}/entries HTTP/1.1
+		// --> [entries in collection]
+		GET("/{id}/entries", (rc) -> {
+			int id = rc.getParameter("id").toInt();
 
-            rc.next();
-        });
+			final JcNode entry = new JcNode("e");
+			final JcNode coll = new JcNode("c");
+			JcQueryResult res = Database.query(rc.getLocal("db"),
+					new IClause[] {
+							MATCH.node(coll).label("collection").relation().type("CONTAINS").node(entry).label("entry"),
+							WHERE.valueOf(coll.id()).EQUALS(id), RETURN.value(entry) });
 
-        // POST api.serpconnect.cs.lth.se/{id}/accept HTTP/1.1
-        POST("/{id}/accept", (rc) -> {
-            String email = rc.getSession("email");
-            int id = rc.getParameter("id").toInt();
+			final List<GrNode> entries = res.resultOf(entry);
 
-            JcNode user = new JcNode("user");
-            JcNode coll = new JcNode("coll");
-            JcRelation rel = new JcRelation("rel");
+			rc.status(200).json().send(Graph.Node.fromList(entries));
+		});
 
-            // Replace an INVITE type relation with a MEMBER_OF relation
-            JcQueryResult res = Database.query(Database.access(), new IClause[]{
-                MATCH.node(user).label("user").property("email").value(email)
-                    .relation(rel).type("INVITE")
-                    .node(coll).label("collection"),
-                WHERE.valueOf(coll.id()).EQUALS(id),
-                MERGE.node(user).relation().out().type("MEMBER_OF").node(coll),
-                DO.DELETE(rel),
-                NATIVE.cypher("RETURN TRUE AS ok")
-            });
+		// Must be logged in to accept
+		ALL("/{id}/.*", (rc) -> {
+			if (rc.getParameter("id").isEmpty())
+				throw new RequestException("Invalid collection id");
 
-            if (res.resultOf(new JcBoolean("ok")).size() > 0)
-                rc.getResponse().ok();
-            else
-                throw new RequestException("Not invited to that collection.");
-        });
+			if (rc.getSession("email") == null)
+				throw new RequestException(401, "Must be logged in.");
 
-        // Must be logged in AND member of collection to proceed
-        ALL("/{id}/.*", (rc) -> {
-            String email = rc.getSession("email");
-            int id = rc.getParameter("id").toInt();
+			rc.next();
+		});
 
-            JcNode coll = new JcNode("coll");
+		POST("/{id}/reject", (rc) -> {
+			String email = rc.getSession("email");
+			int id = rc.getParameter("id").toInt();
+			JcNode user = new JcNode("user");
+			JcNode coll = new JcNode("coll");
+			JcRelation rel = new JcRelation("rel");
 
-            JcQueryResult res = Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node().label("user").property("email").value(email)
-                    .relation().out().type("MEMBER_OF")
-                    .node(coll).label("collection"),
-                WHERE.valueOf(coll.id()).EQUALS(id),
-                NATIVE.cypher("RETURN TRUE AS ok")
-            });
+			handleInvitation(rc,"rejected");
+			
+			// Delete invitation
+			JcQueryResult res = Database.query(Database.access(),
+					new IClause[] {
+							MATCH.node(user).label("user").property("email").value(email).relation(rel).type("INVITE")
+									.node(coll).label("collection"),
+							WHERE.valueOf(coll.id()).EQUALS(id),
+							DO.DELETE(rel),
+							NATIVE.cypher("RETURN TRUE AS ok") });
 
-            if (res.resultOf(new JcBoolean("ok")).size() == 0)
-                throw new RequestException(403, "You are not a member of that collection");
+			if (res.resultOf(new JcBoolean("ok")).size() > 0)
+				rc.getResponse().ok();
+			else
+				throw new RequestException("Not invited to that collection.");
+		});
+		
+		// POST api.serpconnect.cs.lth.se/{id}/accept HTTP/1.1
+		POST("/{id}/accept", (rc) -> {
+			String email = rc.getSession("email");
+			int id = rc.getParameter("id").toInt();
+			JcNode user = new JcNode("user");
+			JcNode coll = new JcNode("coll");
+			JcRelation rel = new JcRelation("rel");
 
-            rc.next();
-        });
+			handleInvitation(rc,"accepted");
+			
+			// Replace an INVITE type relation with a MEMBER_OF relation
+			JcQueryResult res = Database.query(Database.access(),
+					new IClause[] {
+							MATCH.node(user).label("user").property("email").value(email).relation(rel).type("INVITE")
+									.node(coll).label("collection"),
+							WHERE.valueOf(coll.id()).EQUALS(id),
+							MERGE.node(user).relation().out().type("MEMBER_OF").node(coll), DO.DELETE(rel),
+							NATIVE.cypher("RETURN TRUE AS ok") });
 
-        // POST api.serpconnect.cs.lth.se/{id}/invite HTTP/1.1
-        // email[0]=...&email[1]=
-        POST("/{id}/invite", (rc) -> {
-            int id = rc.getParameter("id").toInt();
-            List<String> emails = rc.getParameter("email").toList(String.class);
-            String inviter = rc.getParameter("inviterEmail").toString();
-            
-            System.out.println(inviter);
-            
-            for (String email : emails) {
-                JcNode user = new JcNode("user");
-                JcNode coll = new JcNode("coll");
+			if (res.resultOf(new JcBoolean("ok")).size() > 0)
+				rc.getResponse().ok();
+			else
+				throw new RequestException("Not invited to that collection.");
 
-                // Use MERGE so we don't end up with multiple invites per user
-                JcQueryResult res = Database.query(rc.getLocal("db"), new IClause[]{
-                    MATCH.node(user).label("user").property("email").value(email),
-                    MATCH.node(coll).label("collection"),
-                    WHERE.valueOf(coll.id()).EQUALS(id),
-                    MERGE.node(user).relation().out().type("INVITE").node(coll)
-                });
-                
-                System.out.println("everything is fine");
-                JcNode inviterNode = new JcNode("user");
-                Database.query(rc.getLocal("db"), new IClause[]{
-                        MATCH.node(user).label("user").property("email").value(email),
-                        //MATCH.node(coll).label("collection"),
-                        //WHERE.valueOf(coll.id()).EQUALS(id),
-                        MATCH.node(inviterNode).label("user").property("email").value(inviter),
-                        CREATE.node(user).relation().out().type("INVITER").node(inviterNode)
-                    });
-                System.out.println("super fine");
-                app.getMailClient().
-    				sendEmail(email, "SERP Connect - Collection Invite",
-    						  collectionInviteTemplate.
-    						  	  replace("{frontend}", frontend));
-                System.out.println("no problemos");
-            }
+		});
 
-            rc.getResponse().ok();
-        });
+		// Must be logged in AND member of collection to proceed
+		ALL("/{id}/.*", (rc) -> {
+			String email = rc.getSession("email");
+			int id = rc.getParameter("id").toInt();
 
-        // POST api.serpconnect.cs.lth.se/{id}/leave HTTP/1.1
-        POST("/{id}/leave", (rc) -> {
-            String email = rc.getSession("email");
-            int id = rc.getParameter("id").toInt();
+			JcNode coll = new JcNode("coll");
 
-            JcNode user = new JcNode("user");
-            JcNode coll = new JcNode("coll");
-            JcRelation rel = new JcRelation("connection");
+			JcQueryResult res = Database.query(rc.getLocal("db"),
+					new IClause[] {
+							MATCH.node().label("user").property("email").value(email).relation().out().type("MEMBER_OF")
+									.node(coll).label("collection"),
+							WHERE.valueOf(coll.id()).EQUALS(id), NATIVE.cypher("RETURN TRUE AS ok") });
 
-            Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node(user).label("user").property("email").value(email)
-                    .relation(rel)
-                    .node(coll).label("collection"),
-                WHERE.valueOf(coll.id()).EQUALS(id),
-                DO.DELETE(rel)
-            });
-            
-            //Delete collections that have no members (or invites)
-            Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node(coll).label("collection"),
-                WHERE.valueOf(coll.id()).EQUALS(id).
-                AND().NOT().existsPattern(
-                        X.node().label("user")
-                        .relation()
-                        .node(coll)),
-                DO.DETACH_DELETE(coll)
-            });
-            
-            removeEntriesWithNoCollection(rc);
+			if (res.resultOf(new JcBoolean("ok")).size() == 0)
+				throw new RequestException(403, "You are not a member of that collection");
 
-            rc.getResponse().ok();
-        });
+			rc.next();
+		});
 
-        // POST api.serpconnect.cs.lth.se/{id}/kick HTTP/1.1
-        // email=...
-        POST("/{id}/kick", (rc) -> {
-            rc.status(500).text().send("Not yet implemented");
-        });
+		// POST api.serpconnect.cs.lth.se/{id}/invite HTTP/1.1
+		// email[0]=...&email[1]=
+		POST("/{id}/invite", (rc) -> {
+			int id = rc.getParameter("id").toInt();
+			List<String> emails = rc.getParameter("email").toList(String.class);
+			String inviter = rc.getParameter("inviterEmail").toString();
 
-        // POST api.serpconnect.cs.lth.se/{id}/removeEntry HTTP/1.1
-        // entryId=...
-        POST("/{id}/removeEntry", (rc) -> {
-            int id = rc.getParameter("id").toInt();
-            int entryId = rc.getParameter("entryId").toInt();
+			for (String email : emails) {
+				JcNode user = new JcNode("user");
+				JcNode coll = new JcNode("coll");
 
-            final JcNode entry = new JcNode("e");
-            final JcNode coll = new JcNode("c");
-            final JcRelation rel = new JcRelation("r");
+				// Use MERGE so we don't end up with multiple invites per user
+				JcQueryResult res = Database.query(rc.getLocal("db"),
+						new IClause[] { MATCH.node(user).label("user").property("email").value(email),
+								MATCH.node(coll).label("collection"), WHERE.valueOf(coll.id()).EQUALS(id),
+								MERGE.node(user).relation().out().type("INVITE").node(coll) });
 
-            // First, remove the relation to the current collection
-            Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node(coll).label("collection")
-                    .relation(rel).type("CONTAINS")
-                    .node(entry).label("entry"),
-                WHERE.valueOf(coll.id()).EQUALS(id).AND().valueOf(entry.id()).EQUALS(entryId),
-                DO.DELETE(rel)
-            });
-            
-            //TODO: Optimize: Only remove the entry that was supposed to be delted.
-            
-            removeEntriesWithNoCollection(rc);
+				//keep track of who invited the user and to which collection
+				JcNode inviterNode = new JcNode("inviter");
+				Database.query(rc.getLocal("db"),
+						new IClause[] { MATCH.node(user).label("user").property("email").value(email),
+								MATCH.node(inviterNode).label("user").property("email").value(inviter),
+								MERGE.node(user).relation().out().type("INVITER").property("parentnode").value(id).node(inviterNode) });
+				app.getMailClient().sendEmail(email, "SERP Connect - Collection Invite",
+						collectionInviteTemplate.replace("{frontend}", frontend));
+			}
 
-            rc.getResponse().ok();
-        });
+			rc.getResponse().ok();
+		});
 
-        // POST api.serpconnect.cs.lth.se/{id}/kick HTTP/1.1
-        // entryId=...
-        POST("/{id}/addEntry", (rc) -> {
-            int id = rc.getParameter("id").toInt();
-            int entryId = rc.getParameter("entryId").toInt();
+		// POST api.serpconnect.cs.lth.se/{id}/leave HTTP/1.1
+		POST("/{id}/leave", (rc) -> {
+			String email = rc.getSession("email");
+			int id = rc.getParameter("id").toInt();
 
-            final JcNode entry = new JcNode("e");
-            final JcNode coll = new JcNode("c");
+			JcNode user = new JcNode("user");
+			JcNode coll = new JcNode("coll");
+			JcRelation rel = new JcRelation("connection");
 
-            // Connect entry and collection
-            Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node(coll).label("collection"),
-                WHERE.valueOf(coll.id()).EQUALS(id),
-                MATCH.node(entry).label("entry"),
-                WHERE.valueOf(entry.id()).EQUALS(entryId),
-                MERGE.node(coll).relation().out().type("CONTAINS").node(entry)
-            });
+			Database.query(rc.getLocal("db"),
+					new IClause[] { MATCH.node(user).label("user").property("email").value(email).relation(rel)
+							.node(coll).label("collection"), WHERE.valueOf(coll.id()).EQUALS(id), DO.DELETE(rel) });
 
-            rc.getResponse().ok();
-        });
+			// Delete collections that have no members (or invites)
+			Database.query(rc.getLocal("db"),
+					new IClause[] {
+							MATCH.node(coll).label("collection"), WHERE.valueOf(coll.id()).EQUALS(id).AND().NOT()
+									.existsPattern(X.node().label("user").relation().node(coll)),
+							DO.DETACH_DELETE(coll) });
 
-        // GET api.serpconnect.cs.lth.se/{id}/members HTTP/1.1
-        // --> [members in collection]
-        GET("/{id}/members", (rc) -> {
-            int id = rc.getParameter("id").toInt();
+			removeEntriesWithNoCollection(rc);
 
-            final JcNode user = new JcNode("u");
-            final JcNode coll = new JcNode("c");
-            JcQueryResult res = Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node(coll).label("collection")
-                    .relation().in().type("MEMBER_OF")
-                    .node(user).label("user"),
-                WHERE.valueOf(coll.id()).EQUALS(id),
-                RETURN.value(user)
-            });
+			rc.getResponse().ok();
+		});
 
-            Graph.User[] members = Graph.User.fromList(res.resultOf(user));
-            rc.status(200).json().send(members);
-        });
+		// POST api.serpconnect.cs.lth.se/{id}/kick HTTP/1.1
+		// email=...
+		POST("/{id}/kick", (rc) -> {
+			rc.status(500).text().send("Not yet implemented");
+		});
 
-    }
-    
-    private void removeEntriesWithNoCollection(RouteContext rc){
-    	final JcNode entry = new JcNode("e");
-    	Database.query(rc.getLocal("db"), new IClause[]{
-                MATCH.node(entry).label("entry"),
-                WHERE.NOT().existsPattern(
-                        X.node().label("collection")
-                        .relation().type("CONTAINS")
-                        .node(entry)),
-                DO.DETACH_DELETE(entry)
-            });
-    }
+		// POST api.serpconnect.cs.lth.se/{id}/removeEntry HTTP/1.1
+		// entryId=...
+		POST("/{id}/removeEntry", (rc) -> {
+			int id = rc.getParameter("id").toInt();
+			int entryId = rc.getParameter("entryId").toInt();
+
+			final JcNode entry = new JcNode("e");
+			final JcNode coll = new JcNode("c");
+			final JcRelation rel = new JcRelation("r");
+
+			// First, remove the relation to the current collection
+			Database.query(rc.getLocal("db"), new IClause[] {
+					MATCH.node(coll).label("collection").relation(rel).type("CONTAINS").node(entry).label("entry"),
+					WHERE.valueOf(coll.id()).EQUALS(id).AND().valueOf(entry.id()).EQUALS(entryId), DO.DELETE(rel) });
+
+			// TODO: Optimize: Only remove the entry that was supposed to be
+			// delted.
+
+			removeEntriesWithNoCollection(rc);
+
+			rc.getResponse().ok();
+		});
+
+		// POST api.serpconnect.cs.lth.se/{id}/kick HTTP/1.1
+		// entryId=...
+		POST("/{id}/addEntry", (rc) -> {
+			int id = rc.getParameter("id").toInt();
+			int entryId = rc.getParameter("entryId").toInt();
+
+			final JcNode entry = new JcNode("e");
+			final JcNode coll = new JcNode("c");
+
+			// Connect entry and collection
+			Database.query(rc.getLocal("db"),
+					new IClause[] { MATCH.node(coll).label("collection"), WHERE.valueOf(coll.id()).EQUALS(id),
+							MATCH.node(entry).label("entry"), WHERE.valueOf(entry.id()).EQUALS(entryId),
+							MERGE.node(coll).relation().out().type("CONTAINS").node(entry) });
+
+			rc.getResponse().ok();
+		});
+
+		// GET api.serpconnect.cs.lth.se/{id}/members HTTP/1.1
+		// --> [members in collection]
+		GET("/{id}/members", (rc) -> {
+			int id = rc.getParameter("id").toInt();
+
+			final JcNode user = new JcNode("u");
+			final JcNode coll = new JcNode("c");
+			JcQueryResult res = Database
+					.query(rc.getLocal("db"),
+							new IClause[] { MATCH.node(coll).label("collection").relation().in().type("MEMBER_OF")
+									.node(user).label("user"), WHERE.valueOf(coll.id()).EQUALS(id),
+									RETURN.value(user) });
+
+			Graph.User[] members = Graph.User.fromList(res.resultOf(user));
+			rc.status(200).json().send(members);
+		});
+
+	}
+
+	//will reply an email to all users that invited this user which informs them
+	//of what action was taken.
+	private void handleInvitation(RouteContext rc, String action) {
+		String email = rc.getSession("email");
+		int id = rc.getParameter("id").toInt();
+		JcNode user = new JcNode("user");
+		JcRelation rel = new JcRelation("rel");
+		
+		// Find all invitees and store them in the res2 then delete the
+		// relations
+		JcNode username = new JcNode("username");
+		JcQueryResult res2 = Database
+				.query(rc.getLocal("db"),
+						new IClause[] {
+								MATCH.node(user).label("user").property("email").value(email).relation(rel)
+										.type("INVITER").node(username),
+											WHERE.valueOf(rel.property("parentnode").toInt()).EQUALS(id),
+								DO.DELETE(rel), RETURN.value(username)
+								
+						});
+
+		// get the name of the collection
+		JcNode coll = new JcNode("coll2");
+		JcQueryResult res3 = Database.query(Database.access(), new IClause[] { MATCH.node(coll).label("collection"),
+				WHERE.valueOf(coll.id()).EQUALS(id), RETURN.value(coll) });
+		String collName = res3.resultOf(coll).get(0).getProperty("name").getValue().toString();
+
+		// send emails
+		for (int i = 0; i < res2.resultOf(username).size(); i++) {
+			String emailTo = res2.resultOf(username).get(i).getProperty("email").getValue().toString();
+			app.getMailClient().sendEmail(emailTo, "SERP Connect - Collection Invite Response", collectionInviteActionTemplate
+					.replace("{user}", email).replace("{action}", action).replace("{collection}", collName));
+		}
+
+	}
+
+	private void removeEntriesWithNoCollection(RouteContext rc) {
+		final JcNode entry = new JcNode("e");
+		Database.query(rc.getLocal("db"),
+				new IClause[] { MATCH.node(entry).label("entry"),
+						WHERE.NOT().existsPattern(X.node().label("collection").relation().type("CONTAINS").node(entry)),
+						DO.DETACH_DELETE(entry) });
+	}
 }
