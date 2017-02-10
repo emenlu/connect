@@ -249,7 +249,7 @@ public class Collection extends BackendRouter {
 		POST("/{id}/invite", (rc) -> {
 			int id = rc.getParameter("id").toInt();
 			List<String> emails = rc.getParameter("email").toList(String.class);
-			String inviter = rc.getParameter("inviterEmail").toString();
+			String inviter = rc.getSession("email");
 
 			for (String email : emails) {
 				JcNode user = new JcNode("user");
