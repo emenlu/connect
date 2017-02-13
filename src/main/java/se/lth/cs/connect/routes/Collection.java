@@ -263,17 +263,16 @@ public class Collection extends BackendRouter {
 				
 				//only invite new users to collections
 				if(res.resultOf(user).size()==0){
+					JcNode inviterNode = new JcNode("inviter");
+					
+					
 					// Use MERGE so we don't end up with multiple invites per user
+					// Set invite relation and relation to who invited the user
 					Database.query(rc.getLocal("db"),
 							new IClause[] { MATCH.node(user).label("user").property("email").value(email),
 									MATCH.node(coll).label("collection"), WHERE.valueOf(coll.id()).EQUALS(id),
-									MERGE.node(user).relation().out().type("INVITE").node(coll) });
-	
-					//keep track of who invited the user and to which collection
-					JcNode inviterNode = new JcNode("inviter");
-					Database.query(rc.getLocal("db"),
-							new IClause[] { MATCH.node(user).label("user").property("email").value(email),
 									MATCH.node(inviterNode).label("user").property("email").value(inviter),
+									MERGE.node(user).relation().out().type("INVITE").node(coll),
 									MERGE.node(user).relation().out().type("INVITER").property("parentnode").value(id).node(inviterNode) });
 					app.getMailClient().sendEmail(email, "SERP Connect - Collection Invite",
 							collectionInviteTemplate.replace("{frontend}", frontend));
