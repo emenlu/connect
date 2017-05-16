@@ -104,6 +104,7 @@ public class Admin extends BackendRouter {
             	DO.DETACH_DELETE(c)
             });
             rc.getResponse().ok();
+        });
 
         GET("/collections-owned-by", (rc)->{
         	if(rc.getParameter("email").isEmpty())
@@ -158,7 +159,7 @@ public class Admin extends BackendRouter {
             String trust = rc.getParameter("trust").toString();
             int level = TrustLevel.fromString(trust);
             
-            if (level == TrustLevel.UNKNOWN){
+            if (level == TrustLevel.UNKNOWN) {
             	throw new RequestException("Invalid trust level.");
             }
             
@@ -195,9 +196,9 @@ public class Admin extends BackendRouter {
         	rc.json().send(Graph.Collection.fromList(allColls));
         });
         
-        GET("/{id}/is-collection-owner", (rc)->{
-   		 rc.status(200).json().send(Collection.isOwner(rc));
-       });
+        GET("/{id}/is-collection-owner", (rc) -> {
+            rc.status(200).json().send(Collection.isOwner(rc));
+        });
 
     }
 
