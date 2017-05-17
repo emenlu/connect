@@ -27,7 +27,7 @@ import se.lth.cs.connect.modules.Database;
  */
 public class Admin extends BackendRouter {
     public Admin(Connect app) {
-        super(app);
+        super(app, "/v1/admin");
     }
 
     protected void setup(PippoSettings conf) {
@@ -201,6 +201,4 @@ public class Admin extends BackendRouter {
         });
 
     }
-
-    public String getPrefix() { return "/v1/admin"; }
 }
