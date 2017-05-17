@@ -30,7 +30,7 @@ public class BackendRouter extends RouteGroup {
         this.app = app;
 
         // All requests will need a database connection
-        ALL(".*", (rc) -> {
+        ALL(prefix + ".*", (rc) -> {
             rc.setLocal("db", Database.access());
             rc.next();
         });
@@ -38,7 +38,7 @@ public class BackendRouter extends RouteGroup {
         setup(app.getPippoSettings());
 
         // Make sure to close connection, even if request failed/throwed
-        ALL(".*", (rc) -> {
+        ALL(prefix + ".*", (rc) -> {
             IDBAccess conn = rc.removeLocal("db");
             if (conn != null)
                 conn.close();
