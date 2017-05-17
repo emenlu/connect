@@ -44,7 +44,7 @@ import se.lth.cs.connect.modules.Database;
 public class Entry extends BackendRouter {
 
     public Entry(Connect app) {
-        super(app, "/entry");
+        super(app, "/v1/entry");
     }
 
     @Override

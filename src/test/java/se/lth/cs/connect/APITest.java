@@ -100,7 +100,7 @@ public class APITest extends PippoTest {
         expect().
             statusCode(200).
         when().
-            post("/v1/collection/").
+            post("/v1/collection").
         andReturn().
             jsonPath().getString("id");
         return Long.parseLong(id);

@@ -91,8 +91,8 @@ public class Account extends BackendRouter {
             if (rc.getParameter("passw").isEmpty())
                 throw new RequestException("Must specify a password using 'passw'.");
 
-            //if (!AccountSystem.createAccount(email, passw, TrustLevel.REGISTERED))
-            //    throw new RequestException("Email is already registered.");
+            if (!AccountSystem.createAccount(email, passw, TrustLevel.REGISTERED))
+                throw new RequestException("Email is already registered.");
 
             Map<String, Object> params = new HashMap<String,Object>();
             params.put("token", AccountSystem.generateEmailToken(email));
