@@ -10,6 +10,7 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.Rule;
+import org.junit.ClassRule;
 
 import com.jayway.restassured.filter.session.SessionFilter;
 
@@ -30,10 +31,10 @@ public class APITest extends PippoTest {
     public long collectionId = -1;
 	
     // This rule ensures that we have a server running before doing the tests
-	public Connect app = new Connect();
+	public static Connect app = new Connect();
 
-	@Rule
-	public PippoRule pippoRule = new PippoRule(app);
+	@ClassRule
+	public static PippoRule pippoRule = new PippoRule(app);
 
     public SessionFilter registerUser(SessionFilter sf, String email, String passw) {
         given().
@@ -52,7 +53,7 @@ public class APITest extends PippoTest {
     }
 
 	public String verifyUser(Mailbox mailbox) throws UnsupportedEncodingException{
-		String verify = URLParser.find(mailbox.top().content);
+        String verify = URLParser.find(mailbox.top().content);
 		verify = verify.substring(verify.indexOf("token=") + 6);
 		verify = URLDecoder.decode(verify, PippoConstants.UTF8);
 		
@@ -99,7 +100,7 @@ public class APITest extends PippoTest {
         expect().
             statusCode(200).
         when().
-            post("/v1/collection/").
+            post("/v1/collection").
         andReturn().
             jsonPath().getString("id");
         return Long.parseLong(id);

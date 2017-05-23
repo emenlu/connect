@@ -23,6 +23,7 @@ import iot.jcypher.query.values.JcNode;
 import iot.jcypher.query.values.JcNumber;
 import iot.jcypher.query.values.JcRelation;
 import iot.jcypher.query.values.JcString;
+import iot.jcypher.query.values.functions.FUNCTION;
 import ro.pippo.core.Messages;
 import ro.pippo.core.PippoSettings;
 import ro.pippo.core.route.RouteContext;
@@ -37,15 +38,13 @@ import se.lth.cs.connect.modules.Database;
  * Handles account related actions.
  */
 public class Collection extends BackendRouter {
-    public String getPrefix() { return "/v1/collection"; }
-
-    private String inviteTemplate;
-    private String inviteNewUserTemplate;
+    private static String inviteTemplate;
+    private static String inviteNewUserTemplate;
 	private static String inviteActionTemplate;
-	private String frontend;
+	private static String frontend;
 
     public Collection(Connect app) {
-        super(app);
+        super(app, "/v1/collection");
 
         Messages msg = app.getMessages();
         inviteTemplate = msg.get("pippo.collectioninvite", "en");
@@ -524,7 +523,7 @@ public class Collection extends BackendRouter {
     	final String email = rc.getSession("email");
 		final int id = rc.getParameter("id").toInt();
 		
-		handleInvitation(rc.getLocal("db"),email,id,action,app);
+		handleInvitation(rc.getLocal("db"), email, id, action, app);
     }
     
 	//will reply an email to all users that invited this user which informs them

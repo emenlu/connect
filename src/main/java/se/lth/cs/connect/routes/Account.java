@@ -1,11 +1,9 @@
 package se.lth.cs.connect.routes;
 
-import java.io.UnsupportedEncodingException;
-import java.net.URLEncoder;
-import java.util.HashSet;
-import java.util.Iterator;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
+
 
 import iot.jcypher.database.IDBAccess;
 // required for building queries and interpreting query results
@@ -15,13 +13,9 @@ import iot.jcypher.query.api.IClause;
 import iot.jcypher.query.factories.clause.MATCH;
 import iot.jcypher.query.factories.clause.OPTIONAL_MATCH;
 import iot.jcypher.query.factories.clause.RETURN;
-import iot.jcypher.query.factories.clause.WHERE;
-import iot.jcypher.query.values.JcCollection;
 import iot.jcypher.query.values.JcString;
 import iot.jcypher.query.values.JcNode;
-import iot.jcypher.query.values.JcRelation;
 import ro.pippo.core.Messages;
-import ro.pippo.core.PippoConstants;
 import ro.pippo.core.PippoSettings;
 import se.lth.cs.connect.Connect;
 import se.lth.cs.connect.Graph;
@@ -29,7 +23,6 @@ import se.lth.cs.connect.RequestException;
 import se.lth.cs.connect.TrustLevel;
 import se.lth.cs.connect.modules.AccountSystem;
 import se.lth.cs.connect.modules.Database;
-import se.lth.cs.connect.modules.Mailman;
 
 /**
  * Handles account related actions.
@@ -37,29 +30,16 @@ import se.lth.cs.connect.modules.Mailman;
 public class Account extends BackendRouter {
     private String registerTemplate,
                    resetPasswordRequestTemplate,
-                   resetPasswordSuccessTemplate,
                    notifyAdminOnVerify;
 
     private String hostname, frontend, adminEmail;
 
-    /**
-     * Return an UTF-8, percent-encoded string. Used for base64-encoded tokens.
-     */
-    private String urlencode(String toencode) {
-        try {
-            return URLEncoder.encode(toencode, PippoConstants.UTF8);
-        } catch (UnsupportedEncodingException uce) {
-            return toencode;
-        }
-    }
-
     public Account(Connect app) {
-        super(app);
+        super(app, "/v1/account");
 
         Messages msg = app.getMessages();
         registerTemplate = msg.get("pippo.register", "en");
         resetPasswordRequestTemplate = msg.get("pippo.passwordresetrequest", "en");
-        resetPasswordSuccessTemplate = msg.get("pippo.passwordresetsuccess", "en");
         notifyAdminOnVerify = msg.get("pippo.notifyadminonverify", "en");
 
         hostname = app.getPippoSettings().getString("hostname", "http://localhost:8080");
@@ -71,7 +51,8 @@ public class Account extends BackendRouter {
         final JcNode coll = new JcNode("coll");
         return Database.query(access, new IClause[]{
             MATCH.node().label("user").property("email").value(email)
-                .relation().type(rel).node(coll).label("collection"),
+                .relation().type(rel)
+                .node(coll).label("collection"),
             RETURN.DISTINCT().value(coll)
         }).resultOf(coll);
     }
@@ -90,7 +71,7 @@ public class Account extends BackendRouter {
                 throw new RequestException("Must provide a password using 'passw'");
 
             if (AccountSystem.authenticate(email, passw)) {
-                rc.resetSession();
+                rc.recreateSession();
                 rc.setSession("email", email);
                 rc.getResponse().ok();
             } else {
@@ -113,15 +94,17 @@ public class Account extends BackendRouter {
             if (!AccountSystem.createAccount(email, passw, TrustLevel.REGISTERED))
                 throw new RequestException("Email is already registered.");
 
-            String token = urlencode(AccountSystem.generateEmailToken(email));
+            Map<String, Object> params = new HashMap<String,Object>();
+            params.put("token", AccountSystem.generateEmailToken(email));
+
             String message = registerTemplate
-                .replace("{token}", token)
-                .replace("{hostname}", hostname);
-            
+                .replace("{hostname}", hostname)
+                .replace("{path}", rc.uriFor("verify", params));
+
             app.getMailClient().
             	sendEmail(email, "SERP connect registration", message);
 	            
-            rc.resetSession();
+            rc.recreateSession();
             rc.setSession("email", email);
             rc.getResponse().ok();
         });
@@ -136,10 +119,12 @@ public class Account extends BackendRouter {
             } else if (AccountSystem.findByEmail(email) == null) {
                 throw new RequestException("Email is not registered.");
             } else {
-                String token = urlencode(AccountSystem.generatePasswordToken(email));
+                Map<String, Object> params = new HashMap<String,Object>();
+                params.put("token", AccountSystem.generatePasswordToken(email));
+
                 String message = resetPasswordRequestTemplate
-                    .replace("{token}", token)
-                    .replace("{hostname}", hostname);
+                    .replace("{hostname}", hostname)
+                    .replace("{path}", rc.uriFor("reset-passw", params));
 
                 app.getMailClient().
         			sendEmail(email, "Password reset request", message);
@@ -159,30 +144,29 @@ public class Account extends BackendRouter {
             if (email == null)
             	throw new RequestException("Invalid reset token!");
             
-            rc.resetSession();
+            rc.recreateSession();
             rc.setSession("resetemail", email);
             rc.redirect(frontend + "/resetpassword.html");
-        });
+        }).named("reset-passw");
         
         // POST api.serp.se/v1/account/reset-password-confirm
         // passw=...
         POST("/reset-password-confirm",(rc)-> {
-        	if(rc.getSession("resetemail") == null)
-        		throw new RequestException("Session 'resetemail' is not set"); 
-        	if(rc.getParameter("passw").isEmpty()){
+        	if (rc.getSession("resetemail") == null)
+        		throw new RequestException("Session is not capable of resetting password."); 
+        	
+            if (rc.getParameter("passw").isEmpty())
         		throw new RequestException("Must provide a password.");
-        	}
 
         	String email = rc.getSession("resetemail").toString();
         	String password = rc.getParameter("passw").toString();
         	
 		    AccountSystem.changePassword(email, password);
         	
-		    rc.resetSession();
+		    rc.recreateSession();
         	rc.setSession("email", email);
         	rc.getResponse().ok();
         });
-
 
         // GET api.serp.se/v1/account/verify?token=verifyaccounttoken HTTP/1.1
         GET("/verify", (rc) -> {
@@ -199,10 +183,10 @@ public class Account extends BackendRouter {
             app.getMailClient().
     			sendEmail(adminEmail, "SERP connect email registration", message);  
 
-            rc.resetSession();
+            rc.recreateSession();
             rc.setSession("email", email);
             rc.redirect(frontend + "/profile.html");
-        });
+        }).named("verify");
 
         // -- REQUIRES LOGIN --
 
@@ -268,14 +252,14 @@ public class Account extends BackendRouter {
 
         // GET api.serp.se/v1/account/logout HTTP/1.1
         POST("/logout", (rc) -> {
-            rc.resetSession();
+            rc.recreateSession();
             rc.getResponse().ok();
         });
 
         // POST api.serp.se/v1/account/delete HTTP/1.1
         POST("/delete", (rc) -> {
             AccountSystem.deleteAccount(rc.getSession("email"),rc.getLocal("db"));
-            rc.resetSession();
+            rc.recreateSession();
             rc.getResponse().ok();
         });
 
@@ -339,6 +323,4 @@ public class Account extends BackendRouter {
             this.entries = Graph.Node.fromList(entries);
         }
     }
-
-    public String getPrefix() { return "/v1/account"; }
 }
